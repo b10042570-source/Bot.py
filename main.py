@@ -86,7 +86,7 @@ async def fetch_url(api_key, url):
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {api_key}'
             }
-            async with httpx.AsyncClient(timeout=20, verify=False) as client:
+            async with httpx.AsyncClient(timeout=25, verify=False) as client:
                 response = await client.post('https://api.brightdata.com/request', headers=headers, json=payload)
                 if response.status_code == 200:
                     try:
@@ -208,84 +208,58 @@ async def check_cf_captcha(url, api_key):
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {api_key}'
             }
-            async with httpx.AsyncClient(timeout=15, verify=False) as client:
+            async with httpx.AsyncClient(timeout=30, verify=False) as client:
                 response = await client.post('https://api.brightdata.com/request', headers=headers, json=payload)
+                
+                html = ""
                 if response.status_code == 200:
                     try:
                         data = response.json()
-                        html = data.get('body', data.get('html', ''))
+                        html = data.get('body', '') or data.get('html', '') or data.get('data', '')
                     except:
                         html = response.text
-                    
-                    html_lower = html.lower()
-                    
-                    # ===== Cloudflare Indicators =====
-                    cf_indicators = [
-                        'cloudflare', 'cloudflare-nginx', 'cf-browser-verification',
-                        'cf_chl_opt', 'cf-challenge', 'cf-wrapper', 'cf-error-details',
-                        'cf-error-overview', 'cf-error-type', 'cf-ray', 'cf-connecting-ip',
-                        'cf-cache-status', 'cf-request-id', 'cf-chl-', 'cf_chl_',
-                        '__cf_chl_f_tk', '__cfduid', '__cf_bm', 'cf_clearance',
-                        'challenge-platform', 'challenge-form', 'challenge-running',
-                        'challenge-error', 'challenge-stage', 'cf-challenge-running',
-                        'cf-challenge-form',
-                        'just a moment', 'checking your browser before accessing',
-                        'checking your browser', 'attention required!',
-                        'please wait while we check your browser',
-                        'verifying you are human',
-                        'enable javascript and cookies to continue',
-                        'ray id:', 'performance & security by cloudflare',
-                        'ddos protection by cloudflare', 'cloudflare ray id',
-                        'website is using a security service',
-                        'this process is automatic',
-                        'turnstile', 'cf-turnstile', 'challenges.cloudflare.com',
-                        'turnstile-widget',
-                        'error 1020', 'error 1015', 'error 1009', 'error 1006',
-                        'error 1010', 'error 1005', 'access denied',
-                        'you have been blocked',
-                    ]
-                    
-                    # ===== Captcha Indicators =====
-                    captcha_indicators = [
-                        'captcha', 'captcha-form', 'captcha-image', 'captcha-code',
-                        'captcha-input', 'captcha-box', 'captcha-container',
-                        'captcha-wrapper', 'captcha-challenge', 'captcha-verify',
-                        'verify-captcha', 'solve-captcha', 'security-check',
-                        'security-code', 'security-verification', 'human-verification',
-                        'human-check', 'bot-check', 'bot-detection', 'anti-bot',
-                        'recaptcha', 'g-recaptcha', 'grecaptcha',
-                        'google.com/recaptcha', 'recaptcha/api',
-                        'recaptcha-challenge', 'recaptcha-widget',
-                        'recaptcha-container', 'data-sitekey',
-                        'g-recaptcha-response', 'recaptcha-token',
-                        'hcaptcha', 'h-captcha', 'hcaptcha.com',
-                        'hcaptcha-widget', 'hcaptcha-challenge',
-                        'h-captcha-response',
-                        'verify you are human', 'verify you are not a robot',
-                        'verify that you are not a robot', 'are you a human',
-                        'are you a robot', 'i am not a robot', 'i\'m not a robot',
-                        'prove you are human', 'prove you are not a robot',
-                        'please verify', 'please complete the security check',
-                        'please complete the captcha', 'complete the captcha',
-                        'solve the captcha', 'enter the captcha',
-                        'type the characters', 'type the code', 'enter the code',
-                        'security check', 'human verification', 'robot check',
-                        'anti-robot',
-                        'data-captcha', 'data-callback', 'data-expired-callback',
-                        'data-error-callback', 'data-size', 'data-theme',
-                        'sitekey', 'captcha-site-key',
-                    ]
-                    
-                    has_cf = any(ind in html_lower for ind in cf_indicators)
-                    has_captcha = any(ind in html_lower for ind in captcha_indicators)
-                    
-                    # Cloudflare له الأولوية
-                    if has_cf and has_captcha:
-                        has_captcha = False
-                    
-                    return url, has_cf, has_captcha
                 else:
+                    html = response.text
+                
+                if not html:
                     return url, False, False
+                
+                html_lower = html.lower()
+                
+                # ===== Cloudflare Keywords =====
+                cf_keywords = [
+                    'cloudflare', 'cf-browser-verification', 'cf_chl_opt',
+                    'cf-challenge', 'cf-wrapper', 'challenge-platform',
+                    'just a moment', 'checking your browser',
+                    'attention required!', 'cf-error-details',
+                    'cf-ray', 'turnstile', 'cf-turnstile',
+                    'ddos protection by cloudflare', 'you have been blocked',
+                    'enable javascript and cookies to continue',
+                    'verifying you are human', '__cf_chl_f_tk', 'cf_clearance',
+                    '__cfduid', 'cf-chl-', 'challenges.cloudflare.com'
+                ]
+                
+                # ===== Captcha Keywords =====
+                captcha_keywords = [
+                    'captcha', 'recaptcha', 'hcaptcha', 'g-recaptcha',
+                    'h-captcha', 'grecaptcha', 'verify you are human',
+                    'i am not a robot', 'prove you are human',
+                    'complete the security check', 'security check',
+                    'data-sitekey', 'recaptcha/api',
+                    'challenges.cloudflare.com/turnstile',
+                    'www.google.com/recaptcha',
+                    'hcaptcha.com/1/api.js',
+                    'g-recaptcha-response', 'h-captcha-response'
+                ]
+                
+                has_cf = any(kw in html_lower for kw in cf_keywords)
+                has_captcha = any(kw in html_lower for kw in captcha_keywords)
+                
+                # Cloudflare له أولوية
+                if has_cf:
+                    has_captcha = False
+                
+                return url, has_cf, has_captcha
         except:
             return url, False, False
 
@@ -322,6 +296,7 @@ def can_use_file(user_id):
 # ====== البحث المتوازي ======
 async def run_mass_search(message, context, dorks, check_cf):
     user_id = message.chat.id
+    stop_users[user_id] = False
     
     if not API_KEYS:
         await message.edit_text(premium_emoji("❌ No API keys available."), parse_mode="HTML")
@@ -338,7 +313,7 @@ async def run_mass_search(message, context, dorks, check_cf):
     
     # ===== المرحلة 1: جمع الروابط =====
     for dork in dorks:
-        if context.user_data.get('stop_requested'):
+        if stop_users.get(user_id):
             break
         
         try:
@@ -347,7 +322,6 @@ async def run_mass_search(message, context, dorks, check_cf):
             total_links_found += len(urls)
             processed_dorks += 1
             
-            # Progress bar للبحث
             progress = (processed_dorks / total_dorks * 100)
             bar_length = 20
             filled = int(bar_length * progress / 100)
@@ -370,7 +344,7 @@ async def run_mass_search(message, context, dorks, check_cf):
     all_clean = list(set(all_clean))
     
     # ===== المرحلة 2: الفحص =====
-    if check_cf and all_clean:
+    if all_clean and not stop_users.get(user_id):
         total_links = len(all_clean)
         processed = 0
         clean_urls = []
@@ -380,7 +354,7 @@ async def run_mass_search(message, context, dorks, check_cf):
         tasks = [check_cf_captcha(url, api_key) for url in all_clean]
         
         for coro in asyncio.as_completed(tasks):
-            if context.user_data.get('stop_requested'):
+            if stop_users.get(user_id):
                 break
             
             try:
@@ -399,7 +373,6 @@ async def run_mass_search(message, context, dorks, check_cf):
             
             processed += 1
             
-            # Progress bar للفحص
             if total_links > 0:
                 progress = (processed / total_links * 100)
                 bar_length = 20
@@ -418,10 +391,11 @@ async def run_mass_search(message, context, dorks, check_cf):
         
         all_clean = clean_urls
     
-    context.user_data['stop_requested'] = False
+    stop_users[user_id] = False
     
     # ===== إرسال النتائج =====
     if check_cf:
+        # Yes - يبعت 3 ملفات
         if all_clean:
             filename = f"clean_{user_id}.txt"
             with open(filename, 'w', encoding='utf-8') as f:
@@ -446,6 +420,7 @@ async def run_mass_search(message, context, dorks, check_cf):
                 await message.reply_document(document=f, filename="captcha_urls.txt")
             os.remove(filename)
     else:
+        # No - يبعت ملف واحد بس (السليمة فقط)
         if all_clean:
             filename = f"results_{user_id}.txt"
             with open(filename, 'w', encoding='utf-8') as f:
@@ -551,7 +526,7 @@ async def mdork_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("✅ Yes", callback_data='check_yes'),
                  InlineKeyboardButton("❌ No", callback_data='check_no')]]
     
-    await update.message.reply_text(premium_emoji("🛡 Do you want to check for Cloudflare and Captcha?"), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(premium_emoji("🛡 Do you want to send all links (with Cloudflare & Captcha)?"), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -580,7 +555,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("✅ Yes", callback_data='check_yes'),
                  InlineKeyboardButton("❌ No", callback_data='check_no')]]
     
-    await update.message.reply_text(premium_emoji("🛡 Do you want to check for Cloudflare and Captcha?"), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(premium_emoji("🛡 Do you want to send all links (with Cloudflare & Captcha)?"), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -605,7 +580,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(premium_emoji("❌ No dorks found."), parse_mode="HTML")
             return
         
-        check_cf = data == "check_yes"
+        # Yes = يبعت 3 ملفات / No = يبعت ملف واحد بس
+        send_all = data == "check_yes"
         
         await query.message.edit_text(
             premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
@@ -613,10 +589,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
         )
         
-        await run_mass_search(query.message, context, dorks, check_cf)
+        await run_mass_search(query.message, context, dorks, send_all)
     
     elif data == "stop_search":
-        context.user_data['stop_requested'] = True
+        chat_id = query.message.chat_id
+        stop_users[chat_id] = True
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except:
+            pass
         await query.message.reply_text(premium_emoji("🛑 Stopping..."), parse_mode="HTML")
     
     elif data == "menu_users":
