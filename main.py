@@ -255,7 +255,6 @@ async def check_cf_captcha(url, api_key):
                 has_cf = any(kw in html_lower for kw in cf_keywords)
                 has_captcha = any(kw in html_lower for kw in captcha_keywords)
                 
-                # Cloudflare له أولوية
                 if has_cf:
                     has_captcha = False
                 
@@ -293,9 +292,8 @@ def can_use_mass(user_id):
 def can_use_file(user_id):
     return can_use_mass(user_id)
 
-# ====== البحث المتوازي ======
-async def run_mass_search(message, context, dorks, check_cf):
-    user_id = message.chat.id
+# ====== البحث المتوازي (بدون فحص) ======
+async def run_mass_search(message, user_id, dorks):
     stop_users[user_id] = False
     
     if not API_KEYS:
@@ -303,22 +301,19 @@ async def run_mass_search(message, context, dorks, check_cf):
         return
     
     api_key = API_KEYS[0]
-    all_clean = []
-    all_cf = []
-    all_captcha = []
+    all_urls = []
     
     total_dorks = len(dorks)
     processed_dorks = 0
     total_links_found = 0
     
-    # ===== المرحلة 1: جمع الروابط =====
     for dork in dorks:
         if stop_users.get(user_id):
             break
         
         try:
             urls = await search_all_engines(api_key, dork)
-            all_clean.extend(urls)
+            all_urls.extend(urls)
             total_links_found += len(urls)
             processed_dorks += 1
             
@@ -329,7 +324,7 @@ async def run_mass_search(message, context, dorks, check_cf):
             
             try:
                 await message.edit_text(
-                    premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: {processed_dorks}/{total_dorks}\n🔗 Links: {total_links_found}\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: {int(progress)}% {bar}"),
+                    premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: {processed_dorks}/{total_dorks}\n🔗 Links: {total_links_found}\n\n⏱ Progress: {int(progress)}% {bar}"),
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
                 )
@@ -341,93 +336,98 @@ async def run_mass_search(message, context, dorks, check_cf):
             continue
     
     # إزالة التكرار
-    all_clean = list(set(all_clean))
-    
-    # ===== المرحلة 2: الفحص =====
-    if all_clean and not stop_users.get(user_id):
-        total_links = len(all_clean)
-        processed = 0
-        clean_urls = []
-        cf_count = 0
-        captcha_count = 0
-        
-        tasks = [check_cf_captcha(url, api_key) for url in all_clean]
-        
-        for coro in asyncio.as_completed(tasks):
-            if stop_users.get(user_id):
-                break
-            
-            try:
-                url, has_cf, has_captcha = await coro
-            except:
-                url, has_cf, has_captcha = "", False, False
-            
-            if has_cf:
-                all_cf.append(url)
-                cf_count += 1
-            elif has_captcha:
-                all_captcha.append(url)
-                captcha_count += 1
-            else:
-                clean_urls.append(url)
-            
-            processed += 1
-            
-            if total_links > 0:
-                progress = (processed / total_links * 100)
-                bar_length = 20
-                filled = int(bar_length * progress / 100)
-                bar = '█' * filled + '░' * (bar_length - filled)
-                
-                if processed % 5 == 0 or processed == total_links:
-                    try:
-                        await message.edit_text(
-                            premium_emoji(f"👁 Checking Links\n\n🔗 Links: {len(clean_urls)}\n🛡 Cloudflare: {cf_count}\n👁 Captcha: {captcha_count}\n\n⏱ Progress: {int(progress)}% {bar}"),
-                            parse_mode="HTML",
-                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
-                        )
-                    except:
-                        pass
-        
-        all_clean = clean_urls
+    all_urls = list(set(all_urls))
     
     stop_users[user_id] = False
     
-    # ===== إرسال النتائج =====
-    if check_cf:
-        # Yes - يبعت 3 ملفات
-        if all_clean:
-            filename = f"clean_{user_id}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(all_clean))
-            with open(filename, 'rb') as f:
-                await message.reply_document(document=f, filename="clean_urls.txt")
-            os.remove(filename)
+    # إرسال ملف واحد
+    if all_urls:
+        filename = f"results_{user_id}.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(all_urls))
+        with open(filename, 'rb') as f:
+            await message.reply_document(document=f, filename="dork_results.txt")
+        os.remove(filename)
+
+# ====== الفحص (/sex) ======
+async def run_sex_check(message, user_id, urls):
+    stop_users[user_id] = False
+    
+    if not API_KEYS:
+        await message.edit_text(premium_emoji("❌ No API keys available."), parse_mode="HTML")
+        return
+    
+    api_key = API_KEYS[0]
+    
+    all_clean = []
+    all_cf = []
+    all_captcha = []
+    
+    total_links = len(urls)
+    processed = 0
+    
+    tasks = [check_cf_captcha(url, api_key) for url in urls]
+    
+    for coro in asyncio.as_completed(tasks):
+        if stop_users.get(user_id):
+            break
         
-        if all_cf:
-            filename = f"cf_{user_id}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(all_cf))
-            with open(filename, 'rb') as f:
-                await message.reply_document(document=f, filename="cloudflare_urls.txt")
-            os.remove(filename)
+        try:
+            url, has_cf, has_captcha = await coro
+        except:
+            url, has_cf, has_captcha = "", False, False
         
-        if all_captcha:
-            filename = f"captcha_{user_id}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(all_captcha))
-            with open(filename, 'rb') as f:
-                await message.reply_document(document=f, filename="captcha_urls.txt")
-            os.remove(filename)
-    else:
-        # No - يبعت ملف واحد بس (السليمة فقط)
-        if all_clean:
-            filename = f"results_{user_id}.txt"
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(all_clean))
-            with open(filename, 'rb') as f:
-                await message.reply_document(document=f, filename="dork_results.txt")
-            os.remove(filename)
+        if has_cf:
+            all_cf.append(url)
+        elif has_captcha:
+            all_captcha.append(url)
+        else:
+            all_clean.append(url)
+        
+        processed += 1
+        
+        if total_links > 0:
+            progress = (processed / total_links * 100)
+            bar_length = 20
+            filled = int(bar_length * progress / 100)
+            bar = '█' * filled + '░' * (bar_length - filled)
+            
+            if processed % 5 == 0 or processed == total_links:
+                try:
+                    await message.edit_text(
+                        premium_emoji(f"🔥 Filter Links\n\n🔗 Clean: {len(all_clean)}\n🛡 Cloudflare: {len(all_cf)}\n👁 Captcha: {len(all_captcha)}\n\n⏱ Progress: {int(progress)}% {bar}"),
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
+                    )
+                except:
+                    pass
+    
+    stop_users[user_id] = False
+    
+    # إرسال 3 ملفات
+    if all_clean:
+        filename = f"clean_{user_id}.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(all_clean))
+        with open(filename, 'rb') as f:
+            await message.reply_document(document=f, filename="clean_urls.txt")
+        os.remove(filename)
+    
+    if all_cf:
+        filename = f"cf_{user_id}.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(all_cf))
+        with open(filename, 'rb') as f:
+            await message.reply_document(document=f, filename="cloudflare_urls.txt")
+        os.remove(filename)
+    
+    if all_captcha:
+        filename = f"captcha_{user_id}.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(all_captcha))
+        with open(filename, 'rb') as f:
+            await message.reply_document(document=f, filename="captcha_urls.txt")
+        os.remove(filename)
 
 # ====== الأوامر ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -438,6 +438,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🔗 Single Dork", callback_data='menu_single'),
          InlineKeyboardButton("🚀 Mass Dork", callback_data='menu_mass')],
+        [InlineKeyboardButton("🔥 Filter Links", callback_data='menu_sex')],
         [InlineKeyboardButton("💳 Keys", callback_data='menu_keys'),
          InlineKeyboardButton("👥 Users", callback_data='menu_users')],
         [InlineKeyboardButton("📁 Send .txt", callback_data='menu_file')]
@@ -451,6 +452,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 👤 𝐖𝐞𝐥𝐜𝐨𝐦𝐞 @{username}
 🔗 /dork - 𝐒𝐢𝐧𝐠𝐥𝐞 𝐒𝐞𝐚𝐫𝐜𝐡
 🚀 /mdork - 𝐌𝐚𝐬𝐬 𝐒𝐞𝐚𝐫𝐜𝐡 (𝐔𝐩 𝐭𝐨 𝟏𝟒𝟎)
+🔥 /sex - 𝐅𝐢𝐥𝐭𝐞𝐫 𝐋𝐢𝐧𝐤𝐬 (𝐂𝐥𝐨𝐮𝐝𝐟𝐥𝐚𝐫𝐞 & 𝐂𝐚𝐩𝐭𝐜𝐡𝐚)
 
 📁 𝐒𝐞𝐧𝐝 .𝐭𝐱𝐭
 
@@ -521,12 +523,54 @@ async def mdork_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(premium_emoji("❌ Maximum 140 dorks allowed."), parse_mode="HTML")
         return
     
-    context.user_data['dorks'] = dorks
+    status_msg = await update.message.reply_text(
+        premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
+    )
     
-    keyboard = [[InlineKeyboardButton("✅ Yes", callback_data='check_yes'),
-                 InlineKeyboardButton("❌ No", callback_data='check_no')]]
+    await run_mass_search(status_msg, user_id, dorks)
+
+async def sex_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ALL_USERS.add(user_id)
     
-    await update.message.reply_text(premium_emoji("🛡 Do you want to send all links (with Cloudflare & Captcha)?"), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    if not can_use_mass(user_id):
+        await update.message.reply_text(premium_emoji("❌ You cannot use this command because you are not a VIP user."), parse_mode="HTML")
+        return
+    
+    urls = []
+    
+    # لو في ملف مرفق
+    if update.message.reply_to_message and update.message.reply_to_message.document:
+        document = update.message.reply_to_message.document
+        file = await context.bot.get_file(document.file_id)
+        file_content = await file.download_as_bytearray()
+        
+        urls = [line.strip() for line in file_content.decode('utf-8', errors='ignore').split('\n') if line.strip() and line.strip().startswith('http')]
+    
+    # لو الروابط في الأمر
+    elif context.args:
+        urls = [arg.strip() for arg in context.args if arg.strip().startswith('http')]
+    
+    else:
+        await update.message.reply_text(
+            premium_emoji("💡 Usage:\n• Reply to .txt file with /sex\n• Or: /sex https://url1 https://url2"),
+            parse_mode="HTML"
+        )
+        return
+    
+    if not urls:
+        await update.message.reply_text(premium_emoji("❌ No valid URLs found."), parse_mode="HTML")
+        return
+    
+    status_msg = await update.message.reply_text(
+        premium_emoji(f"🔥 Filter Links\n\n🔗 Clean: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
+    )
+    
+    await run_sex_check(status_msg, user_id, urls)
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -550,12 +594,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(premium_emoji("❌ No dorks found in file."), parse_mode="HTML")
         return
     
-    context.user_data['dorks'] = dorks
+    status_msg = await update.message.reply_text(
+        premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
+    )
     
-    keyboard = [[InlineKeyboardButton("✅ Yes", callback_data='check_yes'),
-                 InlineKeyboardButton("❌ No", callback_data='check_no')]]
-    
-    await update.message.reply_text(premium_emoji("🛡 Do you want to send all links (with Cloudflare & Captcha)?"), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    await run_mass_search(status_msg, user_id, dorks)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -573,23 +618,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "menu_file":
         await query.message.reply_text(premium_emoji("📁 Send a .txt file with dorks (one per line)"), parse_mode="HTML")
     
-    elif data in ["check_yes", "check_no"]:
-        dorks = context.user_data.get('dorks', [])
-        
-        if not dorks:
-            await query.message.reply_text(premium_emoji("❌ No dorks found."), parse_mode="HTML")
-            return
-        
-        # Yes = يبعت 3 ملفات / No = يبعت ملف واحد بس
-        send_all = data == "check_yes"
-        
-        await query.message.edit_text(
-            premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
-        )
-        
-        await run_mass_search(query.message, context, dorks, send_all)
+    elif data == "menu_sex":
+        await query.message.reply_text(premium_emoji("🔥 Filter Links\n\nSend .txt file with links (reply + /sex)\nOr: /sex https://url1 https://url2\n\nResult: 3 files (clean + cloudflare + captcha)"), parse_mode="HTML")
     
     elif data == "stop_search":
         chat_id = query.message.chat_id
@@ -674,6 +704,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⚡ /dork - 𝐒𝐢𝐧𝐠𝐥𝐞 𝐒𝐞𝐚𝐫𝐜𝐡
 🚀 /mdork - 𝐌𝐚𝐬𝐬 𝐒𝐞𝐚𝐫𝐜𝐡 (𝐔𝐩 𝐭𝐨 𝟏𝟒𝟎)
+🔥 /sex - 𝐅𝐢𝐥𝐭𝐞𝐫 𝐋𝐢𝐧𝐤𝐬 (𝐂𝐥𝐨𝐮𝐝𝐟𝐥𝐚𝐫𝐞 & 𝐂𝐚𝐩𝐭𝐜𝐡𝐚)
 📁 𝐒𝐞𝐧𝐝 .𝐭𝐱𝐭 - 𝐅𝐢𝐥𝐞 𝐒𝐞𝐚𝐫𝐜𝐡
 
 💳 /addkey - 𝐀𝐝𝐝 𝐖𝐞𝐛 𝐔𝐧𝐥𝐨𝐜𝐤𝐞𝐫 𝐊𝐞𝐲
@@ -794,6 +825,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("dork", dork_command))
     app.add_handler(CommandHandler("mdork", mdork_command))
+    app.add_handler(CommandHandler("sex", sex_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("addkey", addkey_command))
     app.add_handler(CommandHandler("showkey", showkey_command))
