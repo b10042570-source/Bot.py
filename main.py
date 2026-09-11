@@ -9,9 +9,11 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
+# ====== الإعدادات ======
 TOKEN = os.environ.get('BOT_TOKEN', '8802065988:AAG2yL7xkxlufanIWhitySYrn0GTFv5D-FA')
 ADMINS = [6843321125]
 
+# ====== البيانات ======
 VIP_USERS = {}
 BANNED_USERS = {}
 ALL_USERS = set()
@@ -38,6 +40,7 @@ def save_data():
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
+# ====== الإيموجات البرميوم ======
 PREMIUM_EMOJI_IDS = {
     "⚡": "6037229996622225123",
     "🤖": "6039619012051082706",
@@ -71,9 +74,10 @@ def premium_emoji(text):
             result = result.replace(emoji, f'<tg-emoji emoji-id="{doc_id}">{emoji}</tg-emoji>')
     return result
 
-# ====== Semaphore للتحكم ======
-SEMAPHORE = asyncio.Semaphore(20)
+# ====== Semaphore للتحكم في السرعة ======
+SEMAPHORE = asyncio.Semaphore(50)
 
+# ====== جلب الصفحات ======
 async def fetch_url(api_key, url):
     async with SEMAPHORE:
         try:
@@ -94,6 +98,7 @@ async def fetch_url(api_key, url):
         except:
             return ""
 
+# ====== استخراج الروابط ======
 def extract_urls(html):
     urls = []
     seen = set()
@@ -109,7 +114,10 @@ def extract_urls(html):
         'instagram', 'pinterest', 'tiktok', 'reddit', 'wikipedia', 'amazon',
         'ebay', 'apple', 'microsoft', 'bing', 'msn', 'brightdata', 'brdtest',
         'medium', 'quora', 'wix.com', 'wordpress.com', 'blogger', 'shopify',
-        'github', 'stackoverflow', 'cloudflare', 'w3.org', 'schema.org'
+        'github', 'stackoverflow', 'cloudflare', 'w3.org', 'schema.org',
+        'youtu.be', 'goo.gl', 't.me', 'wa.me', 'bit.ly', 'tinyurl',
+        'trustpilot', 'yelp', 'bbb.org', 'glassdoor', 'indeed',
+        'ziprecruiter', 'monster', 'careerbuilder'
     ]
     
     for url in found:
@@ -125,6 +133,7 @@ def extract_urls(html):
     
     return urls
 
+# ====== محركات البحث ======
 async def search_bing(api_key, dork, pages=50):
     all_urls = []
     tasks = []
@@ -190,6 +199,7 @@ async def search_all_engines(api_key, dork):
     
     return list(set(google_results + bing_results + ddg_results))
 
+# ====== فحص Cloudflare و Captcha ======
 async def check_cf_captcha(url, api_key):
     async with SEMAPHORE:
         try:
@@ -207,15 +217,79 @@ async def check_cf_captcha(url, api_key):
                     except:
                         html = response.text
                     
-                    has_cf = 'cloudflare' in html.lower() or 'cf-browser-verification' in html.lower()
-                    has_captcha = 'captcha' in html.lower() or 'recaptcha' in html.lower() or 'hcaptcha' in html.lower()
+                    html_lower = html.lower()
+                    
+                    # ===== Cloudflare Indicators =====
+                    cf_indicators = [
+                        'cloudflare', 'cloudflare-nginx', 'cf-browser-verification',
+                        'cf_chl_opt', 'cf-challenge', 'cf-wrapper', 'cf-error-details',
+                        'cf-error-overview', 'cf-error-type', 'cf-ray', 'cf-connecting-ip',
+                        'cf-cache-status', 'cf-request-id', 'cf-chl-', 'cf_chl_',
+                        '__cf_chl_f_tk', '__cfduid', '__cf_bm', 'cf_clearance',
+                        'challenge-platform', 'challenge-form', 'challenge-running',
+                        'challenge-error', 'challenge-stage', 'cf-challenge-running',
+                        'cf-challenge-form',
+                        'just a moment', 'checking your browser before accessing',
+                        'checking your browser', 'attention required!',
+                        'please wait while we check your browser',
+                        'verifying you are human',
+                        'enable javascript and cookies to continue',
+                        'ray id:', 'performance & security by cloudflare',
+                        'ddos protection by cloudflare', 'cloudflare ray id',
+                        'website is using a security service',
+                        'this process is automatic',
+                        'turnstile', 'cf-turnstile', 'challenges.cloudflare.com',
+                        'turnstile-widget',
+                        'error 1020', 'error 1015', 'error 1009', 'error 1006',
+                        'error 1010', 'error 1005', 'access denied',
+                        'you have been blocked',
+                    ]
+                    
+                    # ===== Captcha Indicators =====
+                    captcha_indicators = [
+                        'captcha', 'captcha-form', 'captcha-image', 'captcha-code',
+                        'captcha-input', 'captcha-box', 'captcha-container',
+                        'captcha-wrapper', 'captcha-challenge', 'captcha-verify',
+                        'verify-captcha', 'solve-captcha', 'security-check',
+                        'security-code', 'security-verification', 'human-verification',
+                        'human-check', 'bot-check', 'bot-detection', 'anti-bot',
+                        'recaptcha', 'g-recaptcha', 'grecaptcha',
+                        'google.com/recaptcha', 'recaptcha/api',
+                        'recaptcha-challenge', 'recaptcha-widget',
+                        'recaptcha-container', 'data-sitekey',
+                        'g-recaptcha-response', 'recaptcha-token',
+                        'hcaptcha', 'h-captcha', 'hcaptcha.com',
+                        'hcaptcha-widget', 'hcaptcha-challenge',
+                        'h-captcha-response',
+                        'verify you are human', 'verify you are not a robot',
+                        'verify that you are not a robot', 'are you a human',
+                        'are you a robot', 'i am not a robot', 'i\'m not a robot',
+                        'prove you are human', 'prove you are not a robot',
+                        'please verify', 'please complete the security check',
+                        'please complete the captcha', 'complete the captcha',
+                        'solve the captcha', 'enter the captcha',
+                        'type the characters', 'type the code', 'enter the code',
+                        'security check', 'human verification', 'robot check',
+                        'anti-robot',
+                        'data-captcha', 'data-callback', 'data-expired-callback',
+                        'data-error-callback', 'data-size', 'data-theme',
+                        'sitekey', 'captcha-site-key',
+                    ]
+                    
+                    has_cf = any(ind in html_lower for ind in cf_indicators)
+                    has_captcha = any(ind in html_lower for ind in captcha_indicators)
+                    
+                    # Cloudflare له الأولوية
+                    if has_cf and has_captcha:
+                        has_captcha = False
                     
                     return url, has_cf, has_captcha
+                else:
+                    return url, False, False
         except:
-            pass
-        
-        return url, False, False
+            return url, False, False
 
+# ====== الصلاحيات ======
 def can_use_dork(user_id):
     if user_id in ADMINS:
         return True
@@ -245,6 +319,7 @@ def can_use_mass(user_id):
 def can_use_file(user_id):
     return can_use_mass(user_id)
 
+# ====== البحث المتوازي ======
 async def run_mass_search(message, context, dorks, check_cf):
     user_id = message.chat.id
     
@@ -259,8 +334,9 @@ async def run_mass_search(message, context, dorks, check_cf):
     
     total_dorks = len(dorks)
     processed_dorks = 0
+    total_links_found = 0
     
-    # معالجة دروك دروك
+    # ===== المرحلة 1: جمع الروابط =====
     for dork in dorks:
         if context.user_data.get('stop_requested'):
             break
@@ -268,11 +344,18 @@ async def run_mass_search(message, context, dorks, check_cf):
         try:
             urls = await search_all_engines(api_key, dork)
             all_clean.extend(urls)
+            total_links_found += len(urls)
             processed_dorks += 1
+            
+            # Progress bar للبحث
+            progress = (processed_dorks / total_dorks * 100)
+            bar_length = 20
+            filled = int(bar_length * progress / 100)
+            bar = '█' * filled + '░' * (bar_length - filled)
             
             try:
                 await message.edit_text(
-                    premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: {processed_dorks}/{total_dorks}\n🔗 Links: {len(all_clean)}\n🛡 Cloudflare: {len(all_cf)}\n👁 Captcha: {len(all_captcha)}"),
+                    premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: {processed_dorks}/{total_dorks}\n🔗 Links: {total_links_found}\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: {int(progress)}% {bar}"),
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
                 )
@@ -286,39 +369,47 @@ async def run_mass_search(message, context, dorks, check_cf):
     # إزالة التكرار
     all_clean = list(set(all_clean))
     
-    # فحص CF و Captcha
+    # ===== المرحلة 2: الفحص =====
     if check_cf and all_clean:
         total_links = len(all_clean)
         processed = 0
         clean_urls = []
+        cf_count = 0
+        captcha_count = 0
         
-        check_tasks = [check_cf_captcha(url, api_key) for url in all_clean]
+        tasks = [check_cf_captcha(url, api_key) for url in all_clean]
         
-        for coro in asyncio.as_completed(check_tasks):
+        for coro in asyncio.as_completed(tasks):
             if context.user_data.get('stop_requested'):
                 break
             
-            url, has_cf, has_captcha = await coro
+            try:
+                url, has_cf, has_captcha = await coro
+            except:
+                url, has_cf, has_captcha = "", False, False
             
             if has_cf:
                 all_cf.append(url)
+                cf_count += 1
             elif has_captcha:
                 all_captcha.append(url)
+                captcha_count += 1
             else:
                 clean_urls.append(url)
             
             processed += 1
             
+            # Progress bar للفحص
             if total_links > 0:
                 progress = (processed / total_links * 100)
                 bar_length = 20
                 filled = int(bar_length * progress / 100)
                 bar = '█' * filled + '░' * (bar_length - filled)
                 
-                if processed % 10 == 0:
+                if processed % 5 == 0 or processed == total_links:
                     try:
                         await message.edit_text(
-                            premium_emoji(f"👁 Checking Links\n\n🔗 Links: {len(clean_urls)}\n🛡 Cloudflare: {len(all_cf)}\n👁 Captcha: {len(all_captcha)}\n\n⏱ Progress: {int(progress)}% {bar}"),
+                            premium_emoji(f"👁 Checking Links\n\n🔗 Links: {len(clean_urls)}\n🛡 Cloudflare: {cf_count}\n👁 Captcha: {captcha_count}\n\n⏱ Progress: {int(progress)}% {bar}"),
                             parse_mode="HTML",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
                         )
@@ -329,6 +420,7 @@ async def run_mass_search(message, context, dorks, check_cf):
     
     context.user_data['stop_requested'] = False
     
+    # ===== إرسال النتائج =====
     if check_cf:
         if all_clean:
             filename = f"clean_{user_id}.txt"
@@ -516,7 +608,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         check_cf = data == "check_yes"
         
         await query.message.edit_text(
-            premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0"),
+            premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
         )
