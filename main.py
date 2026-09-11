@@ -9,11 +9,9 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# ====== الإعدادات ======
 TOKEN = os.environ.get('BOT_TOKEN', '8802065988:AAG2yL7xkxlufanIWhitySYrn0GTFv5D-FA')
 ADMINS = [6843321125]
 
-# ====== البيانات ======
 VIP_USERS = {}
 BANNED_USERS = {}
 ALL_USERS = set()
@@ -40,7 +38,6 @@ def save_data():
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-# ====== الإيموجات البرميوم ======
 PREMIUM_EMOJI_IDS = {
     "⚡": "6037229996622225123",
     "🤖": "6039619012051082706",
@@ -74,25 +71,28 @@ def premium_emoji(text):
             result = result.replace(emoji, f'<tg-emoji emoji-id="{doc_id}">{emoji}</tg-emoji>')
     return result
 
-# ====== البحث السريع ======
+# ====== Semaphore للتحكم ======
+SEMAPHORE = asyncio.Semaphore(20)
+
 async def fetch_url(api_key, url):
-    try:
-        payload = {'zone': "google_search", 'url': url, 'format': 'raw'}
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        async with httpx.AsyncClient(timeout=20, verify=False, limits=httpx.Limits(max_connections=100)) as client:
-            response = await client.post('https://api.brightdata.com/request', headers=headers, json=payload)
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    return data.get('body', data.get('html', ''))
-                except:
-                    return response.text
-        return ""
-    except:
-        return ""
+    async with SEMAPHORE:
+        try:
+            payload = {'zone': "google_search", 'url': url, 'format': 'raw'}
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}'
+            }
+            async with httpx.AsyncClient(timeout=20, verify=False) as client:
+                response = await client.post('https://api.brightdata.com/request', headers=headers, json=payload)
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        return data.get('body', data.get('html', ''))
+                    except:
+                        return response.text
+            return ""
+        except:
+            return ""
 
 def extract_urls(html):
     urls = []
@@ -191,31 +191,31 @@ async def search_all_engines(api_key, dork):
     return list(set(google_results + bing_results + ddg_results))
 
 async def check_cf_captcha(url, api_key):
-    try:
-        payload = {'zone': "google_search", 'url': url, 'format': 'raw'}
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        async with httpx.AsyncClient(timeout=15, verify=False) as client:
-            response = await client.post('https://api.brightdata.com/request', headers=headers, json=payload)
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    html = data.get('body', data.get('html', ''))
-                except:
-                    html = response.text
-                
-                has_cf = 'cloudflare' in html.lower() or 'cf-browser-verification' in html.lower()
-                has_captcha = 'captcha' in html.lower() or 'recaptcha' in html.lower() or 'hcaptcha' in html.lower()
-                
-                return url, has_cf, has_captcha
-    except:
-        pass
-    
-    return url, False, False
+    async with SEMAPHORE:
+        try:
+            payload = {'zone': "google_search", 'url': url, 'format': 'raw'}
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}'
+            }
+            async with httpx.AsyncClient(timeout=15, verify=False) as client:
+                response = await client.post('https://api.brightdata.com/request', headers=headers, json=payload)
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        html = data.get('body', data.get('html', ''))
+                    except:
+                        html = response.text
+                    
+                    has_cf = 'cloudflare' in html.lower() or 'cf-browser-verification' in html.lower()
+                    has_captcha = 'captcha' in html.lower() or 'recaptcha' in html.lower() or 'hcaptcha' in html.lower()
+                    
+                    return url, has_cf, has_captcha
+        except:
+            pass
+        
+        return url, False, False
 
-# ====== الصلاحيات ======
 def can_use_dork(user_id):
     if user_id in ADMINS:
         return True
@@ -245,7 +245,6 @@ def can_use_mass(user_id):
 def can_use_file(user_id):
     return can_use_mass(user_id)
 
-# ====== البحث المتوازي ======
 async def run_mass_search(message, context, dorks, check_cf):
     user_id = message.chat.id
     
@@ -258,22 +257,42 @@ async def run_mass_search(message, context, dorks, check_cf):
     all_cf = []
     all_captcha = []
     
-    # كل الدروكات بالتوازي
-    tasks = [search_all_engines(api_key, dork) for dork in dorks]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    total_dorks = len(dorks)
+    processed_dorks = 0
     
-    all_urls = []
-    for result in results:
-        if isinstance(result, list):
-            all_urls.extend(result)
-    
-    all_urls = list(set(all_urls))
-    
-    if check_cf:
-        total_links = len(all_urls)
-        processed = 0
+    # معالجة دروك دروك
+    for dork in dorks:
+        if context.user_data.get('stop_requested'):
+            break
         
-        check_tasks = [check_cf_captcha(url, api_key) for url in all_urls]
+        try:
+            urls = await search_all_engines(api_key, dork)
+            all_clean.extend(urls)
+            processed_dorks += 1
+            
+            try:
+                await message.edit_text(
+                    premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: {processed_dorks}/{total_dorks}\n🔗 Links: {len(all_clean)}\n🛡 Cloudflare: {len(all_cf)}\n👁 Captcha: {len(all_captcha)}"),
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
+                )
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"Error on dork: {e}")
+            continue
+    
+    # إزالة التكرار
+    all_clean = list(set(all_clean))
+    
+    # فحص CF و Captcha
+    if check_cf and all_clean:
+        total_links = len(all_clean)
+        processed = 0
+        clean_urls = []
+        
+        check_tasks = [check_cf_captcha(url, api_key) for url in all_clean]
         
         for coro in asyncio.as_completed(check_tasks):
             if context.user_data.get('stop_requested'):
@@ -286,7 +305,7 @@ async def run_mass_search(message, context, dorks, check_cf):
             elif has_captcha:
                 all_captcha.append(url)
             else:
-                all_clean.append(url)
+                clean_urls.append(url)
             
             processed += 1
             
@@ -296,16 +315,17 @@ async def run_mass_search(message, context, dorks, check_cf):
                 filled = int(bar_length * progress / 100)
                 bar = '█' * filled + '░' * (bar_length - filled)
                 
-                try:
-                    await message.edit_text(
-                        premium_emoji(f"👁 Mass Dork Search\n\n🔗 Links: {len(all_clean)}\n🛡 Cloudflare: {len(all_cf)}\n👁 Captcha: {len(all_captcha)}\n\n⏱ Progress: {int(progress)}% {bar}"),
-                        parse_mode="HTML",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
-                    )
-                except:
-                    pass
-    else:
-        all_clean = all_urls
+                if processed % 10 == 0:
+                    try:
+                        await message.edit_text(
+                            premium_emoji(f"👁 Checking Links\n\n🔗 Links: {len(clean_urls)}\n🛡 Cloudflare: {len(all_cf)}\n👁 Captcha: {len(all_captcha)}\n\n⏱ Progress: {int(progress)}% {bar}"),
+                            parse_mode="HTML",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
+                        )
+                    except:
+                        pass
+        
+        all_clean = clean_urls
     
     context.user_data['stop_requested'] = False
     
@@ -496,7 +516,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         check_cf = data == "check_yes"
         
         await query.message.edit_text(
-            premium_emoji("👁 Mass Dork Search\n\n🔗 Links: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0\n\n⏱ Progress: 0% ░░░░░░░░░░░░░░░░░░░░"),
+            premium_emoji(f"👁 Mass Dork Search\n\n📊 Dorks: 0/{len(dorks)}\n🔗 Links: 0\n🛡 Cloudflare: 0\n👁 Captcha: 0"),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop", callback_data='stop_search')]])
         )
