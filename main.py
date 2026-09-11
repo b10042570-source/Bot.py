@@ -74,7 +74,7 @@ def premium_emoji(text):
             result = result.replace(emoji, f'<tg-emoji emoji-id="{doc_id}">{emoji}</tg-emoji>')
     return result
 
-# ====== Semaphore للتحكم في السرعة ======
+# ====== Semaphore ======
 SEMAPHORE = asyncio.Semaphore(50)
 
 # ====== جلب الصفحات ======
@@ -98,7 +98,135 @@ async def fetch_url(api_key, url):
         except:
             return ""
 
-# ====== استخراج الروابط ======
+# ====== الفلاتر ======
+BLOCKED_DOMAINS = [
+    # محركات البحث
+    'google.com', 'google.co', 'googleapis.com', 'googleusercontent.com',
+    'google-analytics.com', 'googletagmanager.com', 'googleadservices.com',
+    'doubleclick.net', 'bing.com', 'msn.com', 'yahoo.com', 'yimg.com',
+    'yahooapis.com', 'oath.com', 'verizonmedia.com', 'duckduckgo.com',
+    'yandex.com', 'yandex.ru', 'yastatic.net', 'yandex.net',
+    'baidu.com', 'bdstatic.com', 'bcebos.com', 'bdimg.com',
+    'brave.com', 'startpage.com', 'ecosia.org', 'mojeek.com',
+    'ask.com', 'aol.com',
+    
+    # سوشيال ميديا
+    'youtube.com', 'youtu.be', 'ytimg.com', 'ggpht.com',
+    'facebook.com', 'fb.com', 'fbcdn.net', 'facebook.net',
+    'twitter.com', 'x.com', 'linkedin.com', 'instagram.com',
+    'pinterest.com', 'tiktok.com', 'reddit.com', 'tumblr.com',
+    'snapchat.com', 'telegram.org', 't.me', 'whatsapp.com',
+    'wa.me', 'discord.com', 'discord.gg',
+    
+    # مواقع معروفة
+    'wikipedia.org', 'wikimedia.org', 'amazon.com', 'ebay.com',
+    'apple.com', 'microsoft.com', 'windows.com', 'windowsupdate.com',
+    'azure.com', 'azurewebsites.net', 'cloudapp.azure.com',
+    'microsoftonline.com', 'sharepoint.com', 'onedrive.live.com',
+    'outlook.com', 'office.com', 'office365.com',
+    'login.live.com', 'account.microsoft.com',
+    'brightdata.com', 'brdtest.com', 'medium.com', 'quora.com',
+    'wix.com', 'wordpress.com', 'blogger.com', 'blogspot.com',
+    'shopify.com', 'github.com', 'gitlab.com', 'stackoverflow.com',
+    'stackexchange.com', 'cloudflare.com', 'w3.org', 'schema.org',
+    'trustpilot.com', 'yelp.com', 'bbb.org', 'glassdoor.com',
+    'indeed.com', 'ziprecruiter.com', 'monster.com', 'careerbuilder.com',
+    'dice.com',
+    
+    # CDNs
+    'akamaihd.net', 'cloudfront.net', 'cdnjs.cloudflare.com',
+    'jsdelivr.net', 'unpkg.com', 'bootstrapcdn.com', 'jquery.com',
+    'fontawesome.com', 'getbootstrap.com', 'wixstatic.com', 'wp.com',
+    'cloudinary.com', 'imgix.net', 'fastly.net', 'maxcdn.com',
+    'stackpath.com', 'keycdn.com', 'statically.io', 'gitcdn.xyz',
+    'rawgit.com',
+    
+    # Consent
+    'onetrust.com', 'cookiebot.com', 'trustarc.com',
+    'usercentrics.com', 'quantcast.com', 'cookielaw.org',
+    'cookieyes.com', 'termly.io', 'iubenda.com', 'osano.com',
+    
+    # إعلانات وتتبع
+    'adsense.google.com', 'adservice.google.com', 'googleads.com',
+    'hotjar.com', 'mixpanel.com', 'segment.com', 'amplitude.com',
+    'sentry.io', 'newrelic.com', 'datadoghq.com', 'bugsnag.com',
+    'rollbar.com', 'logrocket.com', 'fullstory.com', 'clarity.ms',
+    'mouseflow.com', 'crazyegg.com', 'optimizely.com', 'vwo.com',
+    'hubspot.com', 'marketo.com', 'mailchimp.com',
+    
+    # خدمات تانية
+    'goo.gl', 'bit.ly', 'tinyurl.com', 'shorturl.at', 'ow.ly',
+    'buff.ly', 'is.gd', 'v.gd', 'rb.gy', 'cutt.ly',
+    'paypal.com', 'stripe.com', 'square.com', 'venmo.com',
+    'cash.app', 'wise.com', 'revolut.com',
+    
+    # بريد
+    'gmail.com', 'mail.google.com', 'protonmail.com',
+    'proton.me', 'zoho.com', 'yandex.mail', 'mail.ru',
+]
+
+BLOCKED_PATTERNS = [
+    r'\{.*\}',
+    r'%7B.*%7D',
+    r'profilephoto',
+    r'usertile',
+    r'expressionprofile',
+    r'profilepicture',
+    r'avatar',
+    r'\.css$',
+    r'\.js$',
+    r'\.json$',
+    r'\.xml$',
+    r'\.txt$',
+    r'\.pdf$',
+    r'\.png$',
+    r'\.jpg$',
+    r'\.jpeg$',
+    r'\.gif$',
+    r'\.svg$',
+    r'\.ico$',
+    r'\.webp$',
+    r'\.bmp$',
+    r'\.tiff$',
+    r'\.woff',
+    r'\.woff2',
+    r'\.ttf',
+    r'\.eot',
+    r'\.otf',
+    r'\.mp4$',
+    r'\.mp3$',
+    r'\.wav$',
+    r'\.avi$',
+    r'\.mov$',
+    r'\.webm$',
+    r'/static/',
+    r'/assets/',
+    r'/cdn/',
+    r'/cache/',
+    r'/fonts/',
+    r'/images/',
+    r'/img/',
+    r'/css/',
+    r'/js/',
+    r'\.min\.',
+    r'\.map$',
+    r'\.zip$',
+    r'\.tar\.',
+    r'\.gz$',
+    r'/api/',
+    r'/ajax/',
+    r'/graphql',
+    r'/webhook',
+    r'/rpc/',
+    r'/track',
+    r'/pixel',
+    r'/beacon',
+    r'/collect',
+    r'/analytics',
+    r'/gtm',
+    r'/gtag',
+]
+
 def extract_urls(html):
     urls = []
     seen = set()
@@ -109,49 +237,38 @@ def extract_urls(html):
     pattern = r'https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\s"<>()\[\]]*'
     found = re.findall(pattern, html)
     
-    blocked = [
-        'google', 'gstatic', 'youtube', 'facebook', 'twitter', 'linkedin',
-        'instagram', 'pinterest', 'tiktok', 'reddit', 'wikipedia', 'amazon',
-        'ebay', 'apple', 'microsoft', 'bing', 'msn', 'brightdata', 'brdtest',
-        'medium', 'quora', 'wix.com', 'wordpress.com', 'blogger', 'shopify',
-        'github', 'stackoverflow', 'cloudflare', 'w3.org', 'schema.org',
-        'youtu.be', 'goo.gl', 't.me', 'wa.me', 'bit.ly', 'tinyurl',
-        'trustpilot', 'yelp', 'bbb.org', 'glassdoor', 'indeed',
-        'ziprecruiter', 'monster', 'careerbuilder'
-    ]
-    
     for url in found:
         url = url.rstrip('.,;:!?()[]{}')
         url = url.split('&')[0]
         url = url.rstrip('/')
         
-        if url not in seen:
-            domain = urllib.parse.urlparse(url).netloc.lower()
-            if len(domain) > 4 and not any(d in domain for d in blocked):
-                seen.add(url)
-                urls.append(url)
+        if url in seen:
+            continue
+        
+        domain = urllib.parse.urlparse(url).netloc.lower()
+        url_lower = url.lower()
+        
+        if len(domain) <= 4:
+            continue
+        
+        if any(d in domain for d in BLOCKED_DOMAINS):
+            continue
+        
+        if any(re.search(p, url_lower) for p in BLOCKED_PATTERNS):
+            continue
+        
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path.strip('/')
+        
+        if not path and len(domain) > 30:
+            continue
+        
+        seen.add(url)
+        urls.append(url)
     
     return urls
 
 # ====== محركات البحث ======
-async def search_bing(api_key, dork, pages=50):
-    all_urls = []
-    tasks = []
-    
-    for page in range(pages):
-        start = page * 10 + 1
-        url = f'https://www.bing.com/search?q={urllib.parse.quote(dork)}&count=10&first={start}'
-        tasks.append(fetch_url(api_key, url))
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    for html in results:
-        if isinstance(html, str) and html:
-            urls = extract_urls(html)
-            all_urls.extend(urls)
-    
-    return list(set(all_urls))
-
 async def search_google(api_key, dork, pages=30):
     all_urls = []
     tasks = []
@@ -170,7 +287,25 @@ async def search_google(api_key, dork, pages=30):
     
     return list(set(all_urls))
 
-async def search_ddg(api_key, dork, pages=20):
+async def search_bing(api_key, dork, pages=50):
+    all_urls = []
+    tasks = []
+    
+    for page in range(pages):
+        start = page * 10 + 1
+        url = f'https://www.bing.com/search?q={urllib.parse.quote(dork)}&count=10&first={start}'
+        tasks.append(fetch_url(api_key, url))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for html in results:
+        if isinstance(html, str) and html:
+            urls = extract_urls(html)
+            all_urls.extend(urls)
+    
+    return list(set(all_urls))
+
+async def search_ddg(api_key, dork, pages=50):
     all_urls = []
     tasks = []
     
@@ -188,16 +323,41 @@ async def search_ddg(api_key, dork, pages=20):
     
     return list(set(all_urls))
 
+async def search_yahoo(api_key, dork, pages=20):
+    all_urls = []
+    tasks = []
+    
+    for page in range(pages):
+        start = page * 10 + 1
+        url = f'https://search.yahoo.com/search?p={urllib.parse.quote(dork)}&n=10&b={start}'
+        tasks.append(fetch_url(api_key, url))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for html in results:
+        if isinstance(html, str) and html:
+            urls = extract_urls(html)
+            all_urls.extend(urls)
+    
+    return list(set(all_urls))
+
 async def search_all_engines(api_key, dork):
     google_task = search_google(api_key, dork, pages=30)
     bing_task = search_bing(api_key, dork, pages=50)
-    ddg_task = search_ddg(api_key, dork, pages=20)
+    ddg_task = search_ddg(api_key, dork, pages=50)
+    yahoo_task = search_yahoo(api_key, dork, pages=20)
     
-    google_results, bing_results, ddg_results = await asyncio.gather(
-        google_task, bing_task, ddg_task
+    results = await asyncio.gather(
+        google_task, bing_task, ddg_task, yahoo_task,
+        return_exceptions=True
     )
     
-    return list(set(google_results + bing_results + ddg_results))
+    all_urls = []
+    for r in results:
+        if isinstance(r, list):
+            all_urls.extend(r)
+    
+    return list(set(all_urls))
 
 # ====== فحص Cloudflare و Captcha ======
 async def check_cf_captcha(url, api_key):
@@ -226,7 +386,6 @@ async def check_cf_captcha(url, api_key):
                 
                 html_lower = html.lower()
                 
-                # ===== Cloudflare Keywords =====
                 cf_keywords = [
                     'cloudflare', 'cf-browser-verification', 'cf_chl_opt',
                     'cf-challenge', 'cf-wrapper', 'challenge-platform',
@@ -239,7 +398,6 @@ async def check_cf_captcha(url, api_key):
                     '__cfduid', 'cf-chl-', 'challenges.cloudflare.com'
                 ]
                 
-                # ===== Captcha Keywords =====
                 captcha_keywords = [
                     'captcha', 'recaptcha', 'hcaptcha', 'g-recaptcha',
                     'h-captcha', 'grecaptcha', 'verify you are human',
@@ -292,7 +450,7 @@ def can_use_mass(user_id):
 def can_use_file(user_id):
     return can_use_mass(user_id)
 
-# ====== البحث المتوازي (بدون فحص) ======
+# ====== البحث المتوازي ======
 async def run_mass_search(message, user_id, dorks):
     stop_users[user_id] = False
     
@@ -335,12 +493,9 @@ async def run_mass_search(message, user_id, dorks):
             print(f"Error on dork: {e}")
             continue
     
-    # إزالة التكرار
     all_urls = list(set(all_urls))
-    
     stop_users[user_id] = False
     
-    # إرسال ملف واحد
     if all_urls:
         filename = f"results_{user_id}.txt"
         with open(filename, 'w', encoding='utf-8') as f:
@@ -404,7 +559,6 @@ async def run_sex_check(message, user_id, urls):
     
     stop_users[user_id] = False
     
-    # إرسال 3 ملفات
     if all_clean:
         filename = f"clean_{user_id}.txt"
         with open(filename, 'w', encoding='utf-8') as f:
@@ -541,7 +695,6 @@ async def sex_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     urls = []
     
-    # لو في ملف مرفق
     if update.message.reply_to_message and update.message.reply_to_message.document:
         document = update.message.reply_to_message.document
         file = await context.bot.get_file(document.file_id)
@@ -549,7 +702,6 @@ async def sex_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         urls = [line.strip() for line in file_content.decode('utf-8', errors='ignore').split('\n') if line.strip() and line.strip().startswith('http')]
     
-    # لو الروابط في الأمر
     elif context.args:
         urls = [arg.strip() for arg in context.args if arg.strip().startswith('http')]
     
