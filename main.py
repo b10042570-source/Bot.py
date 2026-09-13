@@ -10,7 +10,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 # ====== الإعدادات ======
-TOKEN = os.environ.get('BOT_TOKEN', '8840828420:AAEzYToODDQIt-gSl89FmaDNhytOH9t4W6M')
+TOKEN = os.environ.get('BOT_TOKEN', '8802065988:AAG2yL7xkxlufanIWhitySYrn0GTFv5D-FA')
 ADMINS = [6843321125]
 
 # ====== البيانات ======
